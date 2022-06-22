@@ -12,18 +12,23 @@ First install elixir (assuming you're on OSX, otherwise follow [instructions for
 $ brew install elixir
 ```
 
+Setup configuration files
+
+```
+$ cd config
+$ cp prod.exs.sample prod.exs
+$ cp dev.exs.sample dev.exs
+```
+
 Then fetch the dependencies
 
 ```
 $ mix deps.get
 ```
 
-Perform configuration for AMQP broker
+Edit configuration files
 
 ```
-$ cd config
-$ cp prod.exs.sample prod.exs
-$ cp dev.exs.sample dev.exs
 $ vim prod.exs
 $ vim dev.exs
 ```

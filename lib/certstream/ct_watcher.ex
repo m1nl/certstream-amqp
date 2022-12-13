@@ -9,7 +9,7 @@ defmodule Certstream.CTWatcher do
   use GenServer
   use Instruments
 
-  @default_http_options [timeout: 10_000, recv_timeout: 10_000, follow_redirect: true, hackney: [:insecure]]
+  @default_http_options [timeout: 10_000, recv_timeout: 10_000, follow_redirect: true, hackney: [:insecure], follow_redirect: true]
 
   def child_spec(log) do
     %{
@@ -22,19 +22,20 @@ defmodule Certstream.CTWatcher do
   def start_and_link_watchers(name: supervisor_name) do
     Logger.info("Initializing CT Watchers...")
     # Fetch all CT lists
-    ctl_log_info = "https://www.gstatic.com/ct/log_list/all_logs_list.json"
+    ctl_log_info = "https://www.gstatic.com/ct/log_list/v3/all_logs_list.json"
                      |> HTTPoison.get!([], @default_http_options)
                      |> Map.get(:body)
                      |> Jason.decode!
 
     ctl_log_info
-      |> Map.get("logs")
-      # Replace the operator IDs with a hashmap of id/name
-      |> Enum.map(fn entry ->
-           replace_operator(entry, ctl_log_info["operators"])
-         end)
-      |> Enum.each(fn log ->
-           DynamicSupervisor.start_child(supervisor_name, child_spec(log))
+      |> Map.get("operators")
+      |> Enum.each(fn operator ->
+            operator
+            |> Map.get("logs")
+            |> Enum.each(fn log ->
+                log = Map.put(log, "operator_name", operator["name"])
+                DynamicSupervisor.start_child(supervisor_name, child_spec(log))
+            end)
          end)
   end
 
@@ -42,19 +43,6 @@ defmodule Certstream.CTWatcher do
     GenServer.start_link(
       __MODULE__,
       %{:operator => log, :url => log["url"]}
-    )
-  end
-
-  defp replace_operator(log, operators) do
-    Map.replace!(log,
-      "operated_by",
-      Enum.find(
-        operators,
-        fn operator ->
-          log["operated_by"]
-            |> List.first == operator["id"]
-        end
-      )
     )
   end
 
@@ -101,7 +89,7 @@ defmodule Certstream.CTWatcher do
   end
 
   def get_tree_size(state) do
-    "https://#{state[:url]}ct/v1/get-sth"
+    "#{state[:url]}ct/v1/get-sth"
       |> http_request_with_retries
       |> Map.get("tree_size")
   end
@@ -117,7 +105,7 @@ defmodule Certstream.CTWatcher do
     # in theory).
     state =
       try do
-        batch_size = "https://#{state[:url]}ct/v1/get-entries?start=0&end=511"
+        batch_size = "#{state[:url]}ct/v1/get-entries?start=0&end=511"
                        |> HTTPoison.get!([], @default_http_options)
                        |> Map.get(:body)
                        |> Jason.decode!
@@ -154,7 +142,7 @@ defmodule Certstream.CTWatcher do
 
         cert_count = current_tree_size - state[:tree_size]
         Instruments.increment("certstream.worker", cert_count, tags: ["url:#{state[:url]}"])
-        Instruments.increment("certstream.aggregate_owners_count", cert_count, tags: [~s(owner:#{state[:operator]["operated_by"]["name"]})])
+        Instruments.increment("certstream.aggregate_owners_count", cert_count, tags: [~s(owner:#{state[:operator]["operator_name"]})])
 
         broadcast_updates(state, current_tree_size)
 
@@ -184,7 +172,7 @@ defmodule Certstream.CTWatcher do
 
   def fetch_and_broadcast_certs(ids, state) do
     Logger.debug(fn -> "Attempting to retrieve #{ids |> Enum.count} entries" end)
-    entries = "https://#{state[:url]}ct/v1/get-entries?start=#{List.first(ids)}&end=#{List.last(ids)}"
+    entries = "#{state[:url]}ct/v1/get-entries?start=#{List.first(ids)}&end=#{List.last(ids)}"
                 |> http_request_with_retries
                 |> Map.get("entries", [])
 
@@ -201,7 +189,7 @@ defmodule Certstream.CTWatcher do
                    :url => state[:operator]["url"],
                    :name => state[:operator]["description"],
                  },
-                 :cert_link => "http://#{state[:operator]["url"]}ct/v1/get-entries?start=#{cert_index}&end=#{cert_index}"
+                 :cert_link => "#{state[:operator]["url"]}ct/v1/get-entries?start=#{cert_index}&end=#{cert_index}"
                }
              )
       end)

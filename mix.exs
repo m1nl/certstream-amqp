@@ -16,7 +16,7 @@ defmodule Certstream.Mixfile do
 
   def application do
     [
-      extra_applications: [:honeybadger, :logger],
+      extra_applications: [:logger, :crypto],
       mod: {Certstream, []},
     ]
   end
@@ -24,9 +24,7 @@ defmodule Certstream.Mixfile do
   defp deps do
     [
       {:easy_ssl, "~> 1.3"},
-      {:honeybadger, "~> 0.18.1"},
       {:httpoison, "~> 1.8"},
-      {:instruments, "~> 2.1"},
       {:jason, "~> 1.3"},
       {:number, "~> 1.0"},
       {:pobox, "~> 1.2"},

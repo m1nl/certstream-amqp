@@ -1,5 +1,9 @@
 require Logger
 
+defmodule Certstream.CTWatcherFatalException do
+  defexception [:message]
+end
+
 defmodule Certstream.CTWatcher do
   @moduledoc """
   The GenServer responsible for watching a specific CT server. It ticks every 15 seconds via
@@ -7,25 +11,23 @@ defmodule Certstream.CTWatcher do
   any certificates to fetch and broadcast.
   """
   use GenServer
-  use Instruments
 
-  @default_http_options [timeout: 10_000, recv_timeout: 10_000, follow_redirect: true, hackney: [:insecure], follow_redirect: true]
+  @default_http_options [timeout: 10_000, recv_timeout: 10_000, follow_redirect: true, hackney: [:insecure]]
 
-  def child_spec(log) do
+  def child_spec(state) do
     %{
       id: __MODULE__,
-      start: {__MODULE__, :start_link, [log]},
-      restart: :permanent,
+      start: {__MODULE__, :start_link, [state]},
+      restart: :temporary,
     }
   end
 
-  def start_and_link_watchers(name: supervisor_name) do
+  def start_and_link_watchers(supervisor_name, registry_name) do
     Logger.info("Initializing CT Watchers...")
+
     # Fetch all CT lists
     ctl_log_info = "https://www.gstatic.com/ct/log_list/v3/all_logs_list.json"
-                     |> HTTPoison.get!([], @default_http_options)
-                     |> Map.get(:body)
-                     |> Jason.decode!
+                     |> http_request_with_retries
 
     ctl_log_info
       |> Map.get("operators")
@@ -33,63 +35,77 @@ defmodule Certstream.CTWatcher do
             operator
             |> Map.get("logs")
             |> Enum.each(fn log ->
-                log = Map.put(log, "operator_name", operator["name"])
-                DynamicSupervisor.start_child(supervisor_name, child_spec(log))
+                state = %{:operator => log, :registry_name => registry_name}
+                DynamicSupervisor.start_child(supervisor_name, child_spec(state))
             end)
          end)
   end
 
-  def start_link(log) do
-    GenServer.start_link(
-      __MODULE__,
-      %{:operator => log, :url => log["url"]}
-    )
+  def start_link(opts) do
+    registration = {:via, Registry, {opts[:registry_name], opts[:operator]["url"], :running}}
+
+    GenServer.start_link(__MODULE__, opts, name: registration)
   end
 
   def init(state) do
     # Schedule the initial update to happen between 0 and 3 seconds from now in
     # order to stagger when we hit these servers and avoid a thundering herd sort
     # of issue upstream
-    delay = :rand.uniform(30) / 10
+    delay = :rand.uniform(100) / 10
 
-    Logger.debug("Worker #{inspect self()} started with url #{state[:url]} and initial start time of #{delay} seconds from now.")
+    Logger.info('Worker #{inspect self()} started with URL #{state[:operator]["url"]} and initial start time of #{delay} seconds from now.')
 
-    send(self(), :init)
+    Process.send_after(self(), :init, trunc(:timer.seconds(delay)))
 
     {:ok, state}
   end
 
   def http_request_with_retries(full_url, options \\ @default_http_options) do
-    # Go ask for the first 512 entries
-    Logger.debug("Sending GET request to #{full_url}")
-
     user_agent = {"User-Agent", user_agent()}
+
+    Logger.debug("Sending GET request to #{full_url}")
 
     case HTTPoison.get(full_url, [user_agent], options) do
       {:ok, %HTTPoison.Response{status_code: 200} = response} ->
         case Jason.decode(response.body) do
           {:ok, term} ->
             term
+
           {:error, reason} ->
-            Logger.error("Error: #{inspect reason} while GETing #{full_url}! Sleeping for 10 seconds and trying again...")
-            :timer.sleep(:timer.seconds(10))
-            http_request_with_retries(full_url, options)
+            message = "Parsing error: #{inspect reason} while GETing #{full_url}"
+            Logger.error("#{message} . Terminating...")
+            raise Certstream.CTWatcherFatalException, message
         end
 
+      {:ok, %HTTPoison.Response{status_code: 429}} ->
+        Logger.warn("Got too many requests status while GETing #{full_url} . Sleeping for 300 seconds and trying again...")
+        :timer.sleep(:timer.seconds(300))
+        http_request_with_retries(full_url, options)
+
+      {:ok, %HTTPoison.Response{status_code: 404}} ->
+        message = "Got not found status while GETing #{full_url}"
+        Logger.error("#{message} . Terminating...")
+        raise Certstream.CTWatcherFatalException, message
+
       {:ok, response} ->
-        Logger.error("Unexpected status code #{response.status_code} fetching url #{full_url}! Sleeping for a bit and trying again...")
+        Logger.error("Unexpected status code #{response.status_code} fetching url #{full_url} . Sleeping for a bit and trying again...")
         :timer.sleep(:timer.seconds(10))
         http_request_with_retries(full_url, options)
 
+      {:error, %HTTPoison.Error{reason: :nxdomain}} ->
+        message = "HTTP error: NXDOMAIN while GETing #{full_url}"
+        Logger.error("#{message} . Terminating...")
+        raise Certstream.CTWatcherFatalException, message
+
       {:error, %HTTPoison.Error{reason: reason}} ->
-        Logger.error("Error: #{inspect reason} while GETing #{full_url}! Sleeping for 10 seconds and trying again...")
-        :timer.sleep(:timer.seconds(10))
+        Logger.error("HTTP error: #{inspect reason} while GETing #{full_url} . Sleeping for 60 seconds and trying again...")
+        :timer.sleep(:timer.seconds(60))
         http_request_with_retries(full_url, options)
     end
   end
 
   def get_tree_size(state) do
-    "#{state[:url]}ct/v1/get-sth"
+    '#{state[:operator]["url"]}ct/v1/get-sth'
       |> http_request_with_retries
       |> Map.get("tree_size")
   end
@@ -103,28 +119,19 @@ defmodule Certstream.CTWatcher do
     # On first run attempt to fetch 512 certificates, and see what the API returns. However
     # many certs come back is what we should use as the batch size moving forward (at least
     # in theory).
-    state =
-      try do
-        batch_size = "#{state[:url]}ct/v1/get-entries?start=0&end=511"
-                       |> HTTPoison.get!([], @default_http_options)
-                       |> Map.get(:body)
-                       |> Jason.decode!
-                       |> Map.get("entries")
-                       |> Enum.count
+    batch_size = '#{state[:operator]["url"]}ct/v1/get-entries?start=0&end=511'
+                   |> http_request_with_retries
+                   |> Map.get("entries")
+                   |> Enum.count
 
-        Logger.info("Worker #{inspect self()} with url #{state[:url]} found batch size of #{batch_size}.")
+    Logger.info('Worker #{inspect self()} with URL #{state[:operator]["url"]} found batch size of #{batch_size}.')
 
-        state = Map.put(state, :batch_size, batch_size)
+    state = Map.put(state, :batch_size, batch_size)
 
-        # On first run populate the state[:tree_size] key
-        state = Map.put(state, :tree_size, get_tree_size(state))
+    # On first run populate the state[:tree_size] key
+    state = Map.put(state, :tree_size, get_tree_size(state))
 
-        send(self(), :update)
-
-        state
-      rescue e ->
-        Logger.warn("Worker #{inspect self()} with state #{inspect state} blew up because #{inspect e}")
-      end
+    schedule_update()
 
     {:noreply, state}
   end
@@ -138,11 +145,9 @@ defmodule Certstream.CTWatcher do
 
     state = case current_tree_size > state[:tree_size] do
       true ->
-        Logger.debug("Worker #{inspect self()} with url #{state[:url]} found #{current_tree_size - state[:tree_size]} certificates [#{state[:tree_size]} -> #{current_tree_size}].")
-
         cert_count = current_tree_size - state[:tree_size]
-        Instruments.increment("certstream.worker", cert_count, tags: ["url:#{state[:url]}"])
-        Instruments.increment("certstream.aggregate_owners_count", cert_count, tags: [~s(owner:#{state[:operator]["operator_name"]})])
+
+        Logger.debug('Worker #{inspect self()} with URL #{state[:operator]["url"]} found #{cert_count} certificates [#{state[:tree_size]} -> #{current_tree_size}].')
 
         broadcast_updates(state, current_tree_size)
 
@@ -172,7 +177,7 @@ defmodule Certstream.CTWatcher do
 
   def fetch_and_broadcast_certs(ids, state) do
     Logger.debug(fn -> "Attempting to retrieve #{ids |> Enum.count} entries" end)
-    entries = "#{state[:url]}ct/v1/get-entries?start=#{List.first(ids)}&end=#{List.last(ids)}"
+    entries = '#{state[:operator]["url"]}ct/v1/get-entries?start=#{List.first(ids)}&end=#{List.last(ids)}'
                 |> http_request_with_retries
                 |> Map.get("entries", [])
 

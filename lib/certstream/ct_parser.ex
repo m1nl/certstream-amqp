@@ -79,5 +79,4 @@ defmodule Certstream.CTParser do
   end
 
   defp parse_leaf_entry(:PrecertLogEntry, _entry) do [] end  # For now we don't parse these and rely on everything in "extra_data" only
-
 end

@@ -96,7 +96,7 @@ defmodule Certstream.CTWatcher do
         message = "Got too many requests status while GETing #{full_url}"
 
         if retry do
-          delay = 150 + :rand.uniform(150)
+          delay = 30 + :rand.uniform(30)
 
           Logger.warn("#{message} . Sleeping for #{delay} seconds and trying again...")
           :timer.sleep(:timer.seconds(delay))
@@ -247,7 +247,7 @@ defmodule Certstream.CTWatcher do
     # our certificates without waiting on the previous chunk.
     |> Task.async_stream(&fetch_and_broadcast_certs(&1, state),
       max_concurrency: 5,
-      timeout: :timer.seconds(600)
+      timeout: :timer.seconds(900)
     )
     # Nop to just pull the requests through async_stream
     |> Enum.to_list()

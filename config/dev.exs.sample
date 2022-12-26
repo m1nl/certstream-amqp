@@ -5,3 +5,5 @@ config :amqp,
        connections: [
          amqp_connection: [url: "amqp://guest:guest@localhost/"],
        ]
+
+config :logger, level: :debug

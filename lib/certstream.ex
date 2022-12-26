@@ -25,8 +25,11 @@ defmodule Certstream do
   end
 
   def start_link(opts) do
-    GenServer.start_link(__MODULE__,
-      %{:watcher_supervisor => opts[:watcher_supervisor], :url_registry => opts[:url_registry]}, name: Certstream)
+    GenServer.start_link(
+      __MODULE__,
+      %{:watcher_supervisor => opts[:watcher_supervisor], :url_registry => opts[:url_registry]},
+      name: Certstream
+    )
   end
 
   def init(state) do

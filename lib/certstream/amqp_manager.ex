@@ -30,7 +30,7 @@ defmodule Certstream.AMQPManager do
 
   def handle_info(:pobox_flush, state) do
     if Map.has_key?(state, :queued) do
-      :pobox.active(state[:box_pid], fn(msg, _) -> {{:ok, msg}, :nostate} end, :nostate)
+      :pobox.active(state[:box_pid], fn msg, _ -> {{:ok, msg}, :nostate} end, :nostate)
       state = Map.delete(state, :queued)
 
       {:noreply, state}
@@ -58,22 +58,27 @@ defmodule Certstream.AMQPManager do
     end
   end
 
-  def handle_info({:mail, _box_pid, serialized_certificates_lite, _message_count, message_drop_count}, state) do
+  def handle_info(
+        {:mail, _box_pid, serialized_certificates_lite, _message_count, message_drop_count},
+        state
+      ) do
     if message_drop_count > 0 do
-      Logger.warn(fn -> "Dropped #{message_drop_count} messages" end)
+      Logger.warn("Dropped #{message_drop_count} messages")
     end
 
     with {:ok, amqp} <- AMQP.Application.get_channel(:amqp_channel) do
-      failed = serialized_certificates_lite
-        |> List.flatten
+      failed =
+        serialized_certificates_lite
+        |> List.flatten()
         |> Enum.reduce([], fn serialized_certificate_lite, failed ->
-        case AMQP.Basic.publish(amqp, @exchange, "", serialized_certificate_lite) do
-          :ok ->
-            failed
-          {:error, _reason} ->
-            [ serialized_certificate_lite | failed ]
-        end
-      end)
+          case AMQP.Basic.publish(amqp, @exchange, "", serialized_certificate_lite) do
+            :ok ->
+              failed
+
+            {:error, _reason} ->
+              [serialized_certificate_lite | failed]
+          end
+        end)
 
       cond do
         length(failed) > 0 ->
@@ -96,7 +101,7 @@ defmodule Certstream.AMQPManager do
   end
 
   def handle_error(reason, messages, state) do
-    Logger.error(fn -> "Requeuing #{length(messages)} messages due to error: #{reason}" end)
+    Logger.error("Requeuing #{length(messages)} messages due to error: #{reason}")
 
     Enum.each(messages, fn m -> :pobox.post(state[:box_pid], m) end)
 
@@ -108,17 +113,20 @@ defmodule Certstream.AMQPManager do
   end
 
   def handle_cast({:submit, entries}, state) do
-    Logger.debug(fn -> "Broadcasting #{length(entries)} certificates via AMQP" end)
+    Logger.debug("Broadcasting #{length(entries)} certificates via AMQP")
 
-    certificates = entries
-                     |> Enum.map(&(%{:message_type => "certificate_update", :data => &1}))
+    certificates =
+      entries
+      |> Enum.map(&%{:message_type => "certificate_update", :data => &1})
 
-    certificates_lite = certificates
-                          |> Enum.map(&remove_chain_from_cert/1)
-                          |> Enum.map(&remove_der_from_cert/1)
+    certificates_lite =
+      certificates
+      |> Enum.map(&remove_chain_from_cert/1)
+      |> Enum.map(&remove_der_from_cert/1)
 
-    serialized_certificates_lite = certificates_lite
-                                     |> Enum.map(&Jason.encode!/1)
+    serialized_certificates_lite =
+      certificates_lite
+      |> Enum.map(&Jason.encode!/1)
 
     Enum.each(serialized_certificates_lite, fn m -> :pobox.post(state[:box_pid], m) end)
     :pobox.notify(state[:box_pid])
@@ -128,14 +136,14 @@ defmodule Certstream.AMQPManager do
 
   def remove_chain_from_cert(cert) do
     cert
-      |> pop_in([:data, :chain])
-      |> elem(1)
+    |> pop_in([:data, :chain])
+    |> elem(1)
   end
 
   def remove_der_from_cert(cert) do
     # Clean the der field from the leaf cert
     cert
-      |> pop_in([:data, :leaf_cert, :as_der])
-      |> elem(1)
+    |> pop_in([:data, :leaf_cert, :as_der])
+    |> elem(1)
   end
 end

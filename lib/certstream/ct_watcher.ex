@@ -65,10 +65,10 @@ defmodule Certstream.CTWatcher do
       "Worker #{inspect(self())} started with URL #{state[:operator]["url"]} and initial start time of #{delay} seconds from now."
     )
 
-    # On first run attempt to fetch 256 certificates, and see what the API returns. However
+    # On first run attempt to fetch 512 certificates, and see what the API returns. However
     # many certs come back is what we should use as the batch size moving forward (at least
     # in theory).
-    state = Map.put(state, :batch_size, 256)
+    state = Map.put(state, :batch_size, 512)
 
     Process.send_after(self(), :init, trunc(:timer.seconds(delay)))
 

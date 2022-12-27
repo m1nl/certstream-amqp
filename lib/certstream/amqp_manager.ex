@@ -15,7 +15,7 @@ defmodule Certstream.AMQPManager do
   @pobox_interval_seconds 3
 
   def start_link(_opts) do
-    Logger.info("Starting #{__MODULE__}...")
+    Logger.info("Starting #{__MODULE__}")
 
     GenServer.start_link(__MODULE__, fn -> %{} end, name: __MODULE__)
   end

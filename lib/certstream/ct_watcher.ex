@@ -30,7 +30,7 @@ defmodule Certstream.CTWatcher do
   end
 
   def start_and_link_watchers(supervisor_name, registry_name) do
-    Logger.info("Initializing CT Watchers...")
+    Logger.info("Initializing CT watchers")
 
     # Fetch all CT lists
     ctl_log_info =
@@ -87,54 +87,63 @@ defmodule Certstream.CTWatcher do
             term
 
           {:error, reason} ->
-            message = "Parsing error: #{inspect(reason)} while GETing #{full_url}"
-            Logger.error("#{message} . Terminating...")
+            message = "Parsing error #{inspect(reason)} requesting #{full_url}"
+            Logger.error(message)
+
             raise Certstream.CTWatcherFatalException, reason: :parsing_error, message: message
         end
 
       {:ok, %HTTPoison.Response{status_code: 429}} ->
-        message = "Got too many requests status while GETing #{full_url}"
+        message = "Got too many requests status requesting #{full_url}"
 
         if retry do
           delay = 30 + :rand.uniform(30)
 
-          Logger.warn("#{message} . Sleeping for #{delay} seconds and trying again...")
+          Logger.warn("#{message} - sleeping for #{delay} seconds and trying again")
           :timer.sleep(:timer.seconds(delay))
           invoke_http_request(full_url, options)
+
         else
           raise Certstream.CTWatcherFatalException, reason: :too_many_requests, message: message
+
         end
 
       {:ok, %HTTPoison.Response{status_code: 404}} ->
-        message = "Got not found status while GETing #{full_url}"
-        Logger.error("#{message} . Terminating...")
+        message = "Got not found status requesting #{full_url}"
+        Logger.error(message)
+
         raise Certstream.CTWatcherFatalException, reason: :not_found, message: message
 
       {:ok, response} ->
-        message = "Unexpected status code #{response.status_code} fetching url #{full_url}"
+        message = "Unexpected status code #{response.status_code} requesting #{full_url}"
 
         if retry do
-          Logger.error("#{message} . Sleeping for a bit and trying again...")
+          Logger.error("#{message} - sleeping for a bit and trying again")
           :timer.sleep(:timer.seconds(10))
           invoke_http_request(full_url, options)
+
         else
           raise Certstream.CTWatcherFatalException, reason: :unexpected_status, message: message
+
         end
 
       {:error, %HTTPoison.Error{reason: :nxdomain}} ->
-        message = "HTTP error: NXDOMAIN while GETing #{full_url}"
-        Logger.error("#{message} . Terminating...")
+        message = "HTTP error: NXDOMAIN requesting #{full_url}"
+        Logger.error(message)
+
         raise Certstream.CTWatcherFatalException, reason: :nxdomain, message: message
 
       {:error, %HTTPoison.Error{reason: reason}} ->
-        message = "HTTP error: #{inspect(reason)} while GETing #{full_url}"
+        message = "HTTP error: #{inspect(reason)} requesting #{full_url}"
 
         if retry do
-          Logger.error("#{message} . Sleeping for 60 seconds and trying again...")
+          Logger.error("#{message} - sleeping for 60 seconds and trying again")
           :timer.sleep(:timer.seconds(60))
           invoke_http_request(full_url, options)
+
         else
           raise Certstream.CTWatcherFatalException, reason: reason, message: message
+
         end
     end
   end
@@ -309,7 +318,7 @@ defmodule Certstream.CTWatcher do
               split = ceil(batch_count / 2)
 
               Logger.warn(
-                "Unable to parse response - splitting request into two batches of size #{split} and trying again..."
+                "Unable to parse response - splitting request into two batches of size #{split} and trying again"
               )
 
               ids

@@ -6,4 +6,4 @@ config :amqp,
          amqp_connection: [url: "amqp://guest:guest@localhost/"],
        ]
 
-config :logger, level: :warn
+config :logger, level: :info

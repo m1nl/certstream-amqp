@@ -23,16 +23,16 @@ defmodule Certstream.Mixfile do
 
   defp deps do
     [
-      {:easy_ssl, "~> 1.3"},
-      {:httpoison, "~> 1.8"},
-      {:jason, "~> 1.3"},
+      {:easy_ssl, git: "https://github.com/CaliDog/EasySSL.git", branch: "master"},
+      {:httpoison, "~> 2.2"},
+      {:jason, "~> 1.4"},
       {:number, "~> 1.0"},
       {:pobox, "~> 1.2"},
 
-      {:credo, "~> 1.6", only: [:dev, :test], runtime: false},
-      {:excoveralls, "~> 0.14", only: :test},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:excoveralls, "~> 0.18", only: :test},
 
-      {:amqp, "~> 3.1.1"}
+      {:amqp, "~> 3.3.0"}
     ]
   end
 

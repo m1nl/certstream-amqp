@@ -63,7 +63,7 @@ defmodule Certstream.AMQPManager do
         state
       ) do
     if message_drop_count > 0 do
-      Logger.warn("Dropped #{message_drop_count} messages")
+      Logger.warning("Dropped #{message_drop_count} messages")
     end
 
     with {:ok, amqp} <- AMQP.Application.get_channel(:amqp_channel) do

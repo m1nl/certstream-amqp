@@ -99,7 +99,7 @@ defmodule Certstream.CTWatcher do
         if retry do
           delay = 30 + :rand.uniform(30)
 
-          Logger.warn("#{message} - sleeping for #{delay} seconds and trying again")
+          Logger.warning("#{message} - sleeping for #{delay} seconds and trying again")
           :timer.sleep(:timer.seconds(delay))
           invoke_http_request(full_url, options)
 
@@ -191,7 +191,7 @@ defmodule Certstream.CTWatcher do
                   batch_size = floor(batch_size * 0.9)
                   state = Map.put(state, :batch_size, batch_size)
 
-                  Logger.warn(
+                  Logger.warning(
                     "Reduced batch size for worker #{inspect(self())} with URL #{state[:operator]["url"]} to #{batch_size} because of too many requests."
                   )
 
@@ -311,13 +311,13 @@ defmodule Certstream.CTWatcher do
               |> Enum.map(&to_string/1)
               |> Enum.join(", ")
 
-              Logger.warn(
+              Logger.warning(
                 "Unable to parse response - discarding entries with ID(s) #{ids_s}"
               )
             else
               split = ceil(batch_count / 2)
 
-              Logger.warn(
+              Logger.warning(
                 "Unable to parse response - splitting request into two batches of size #{split} and trying again"
               )
 

@@ -38,10 +38,10 @@ defmodule Certstream.CTWatcher do
       |> invoke_http_request
 
     ctl_log_info
-    |> Map.get("operators")
+    |> Map.get("operators", [])
     |> Enum.each(fn operator ->
       operator
-      |> Map.get("logs")
+      |> Map.get("logs", [])
       |> Enum.each(fn log ->
         state = %{:operator => log, :registry_name => registry_name}
         DynamicSupervisor.start_child(supervisor_name, child_spec(state))
